@@ -4,6 +4,11 @@ const IPC_EVENT_CONNECT = "vuex-mutations-connect"
 const IPC_EVENT_NOTIFY_MAIN = "vuex-mutations-notify-main"
 const IPC_EVENT_NOTIFY_RENDERERS = "vuex-mutations-notify-renderers"
 
+const IPC_EVENT_NOTIFY_TYPE = {
+  COMMIT: "commit",
+  DISPATCH: "dispatch"
+}
+
 class SharedMutations {
   constructor(options, store) {
     this.options = options
@@ -50,14 +55,14 @@ class SharedMutations {
     this.store.originalCommit = this.store.commit
     this.store.originalDispatch = this.store.dispatch
 
-    // Don't use commit in renderer outside of actions
-    this.store.commit = () => {
-      throw new Error(`[Vuex Electron] Please, don't use direct commit's, use dispatch instead of this.`)
+    // Forward commit to main process
+    this.store.commit = (type, payload) => {
+      this.notifyMain({ notifyType: IPC_EVENT_NOTIFY_TYPE.COMMIT, type, payload })
     }
 
     // Forward dispatch to main process
     this.store.dispatch = (type, payload) => {
-      this.notifyMain({ type, payload })
+      this.notifyMain({ notifyType: IPC_EVENT_NOTIFY_TYPE.DISPATCH, type, payload })
     }
 
     // Subscribe on changes from main process and apply them
@@ -83,8 +88,12 @@ class SharedMutations {
     })
 
     // Subscribe on changes from renderer processes
-    this.onNotifyMain((event, { type, payload }) => {
-      this.store.dispatch(type, payload)
+    this.onNotifyMain((event, { notifyType, type, payload }) => {
+      if (notifyType === IPC_EVENT_NOTIFY_TYPE.COMMIT) {
+        this.store.commit(type, payload)
+      } else if (notifyType === IPC_EVENT_NOTIFY_TYPE.DISPATCH) {
+        this.store.dispatch(type, payload)
+      }
     })
 
     // Subscribe on changes from Vuex store
